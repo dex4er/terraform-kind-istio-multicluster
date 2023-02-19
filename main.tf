@@ -1,5 +1,10 @@
 terraform {
   required_providers {
+    archive = {
+      ## https://registry.terraform.io/providers/hashicorp/archive/latest/docs
+      source  = "hashicorp/archive"
+      version = "2.3.0"
+    }
     docker = {
       ## https://registry.terraform.io/providers/kreuzwerker/docker/latest/docs
       source  = "kreuzwerker/docker"
@@ -98,9 +103,19 @@ resource "docker_container" "registry" {
   ]
 }
 
+data "archive_file" "flux" {
+  type        = "zip"
+  source_dir  = "flux"
+  output_path = "flux.zip"
+}
+
 resource "null_resource" "flux_push_artifact" {
+  triggers = {
+    flux_directory_checksum = data.archive_file.flux.output_base64sha256
+  }
+
   provisioner "local-exec" {
-    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"main\""
+    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"$(LC_ALL=C date +%Y%m%d%H%M%S)\""
   }
 
   depends_on = [

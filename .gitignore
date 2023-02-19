@@ -7,3 +7,5 @@
 *.tfplan
 *.tfvars
 *.tfstate*
+
+/flux.zip
