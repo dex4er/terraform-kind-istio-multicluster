@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://json.schemastore.org/json-patch
+
+- op: add
+  path: /spec/template/spec/containers/-
+  value:
+    name: http-socat
+    image: alpine/socat:latest
+    args:
+      - "TCP6-LISTEN:5000,fork"
+      - "TCP:kind-registry:5000"
+    ports:
+      - containerPort: 5000
+        name: http
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+          - ALL
+      runAsNonRoot: true
+      seccompProfile:
+        type: RuntimeDefault
+      runAsUser: 1337

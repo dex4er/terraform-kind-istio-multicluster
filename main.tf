@@ -27,43 +27,8 @@ locals {
   tool_versions = { for line in split("\n", file(".tool-versions")) : split(" ", line)[0] => split(" ", line)[1] if line != "" }
 }
 
-## tf import docker_network.kind $(docker network inspect kind | jq -r .[0].Id)
-resource "docker_network" "kind" {
-  name = "kind"
-  ipv6 = true
-
-  options = {
-    "com.docker.network.bridge.enable_ip_masquerade" = "true"
-    "com.docker.network.driver.mtu"                  = "1500"
-  }
-}
-
-resource "docker_network" "test" {
-  name = "test"
-}
-
 resource "docker_image" "registry" {
   name = "registry:2"
-}
-
-resource "docker_container" "registry" {
-  name    = "kind-registry"
-  image   = docker_image.registry.image_id
-  restart = "always"
-
-  ports {
-    internal = 5000
-    external = 5000
-    ip       = "127.0.0.1"
-  }
-
-  provisioner "local-exec" {
-    command = "docker network connect kind kind-registry"
-  }
-
-  depends_on = [
-    docker_network.kind,
-  ]
 }
 
 provider "kind" {
@@ -96,10 +61,6 @@ resource "kind_cluster" "backend" {
       })]
     }]
   })
-
-  depends_on = [
-    docker_network.kind,
-  ]
 }
 
 resource "local_sensitive_file" "kubeconfig" {
@@ -107,17 +68,91 @@ resource "local_sensitive_file" "kubeconfig" {
   filename = ".kube/config"
 }
 
-resource "null_resource" "flux_backend" {
+resource "null_resource" "flux_backend_install_yaml" {
   triggers = {
     flux_version = local.tool_versions["flux2"]
   }
 
   provisioner "local-exec" {
-    command = "flux install --context kind-backend --kubeconfig .kube/config --version v${local.tool_versions["flux2"]}"
+    command = "mkdir -p flux/common/flux-system && flux install --export --version v${local.tool_versions["flux2"]} > flux/common/flux-system/install.yaml"
+  }
+}
+
+resource "docker_container" "registry" {
+  name    = "kind-registry"
+  image   = docker_image.registry.image_id
+  restart = "always"
+
+  ports {
+    internal = 5000
+    external = 5000
+    ip       = "127.0.0.1"
+  }
+
+  provisioner "local-exec" {
+    command = "docker network connect kind kind-registry"
   }
 
   depends_on = [
-    docker_network.kind,
-    local_sensitive_file.kubeconfig,
+    kind_cluster.backend,
   ]
 }
+
+resource "null_resource" "flux_push_artifact" {
+  provisioner "local-exec" {
+    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"main\""
+  }
+
+  depends_on = [
+    docker_container.registry,
+    null_resource.flux_backend_install_yaml,
+  ]
+}
+
+resource "null_resource" "flux_system_common_apply" {
+  triggers = {
+    flux_version = local.tool_versions["flux2"]
+  }
+
+  provisioner "local-exec" {
+    command = "kubectl apply -k flux/common/flux-system --server-side"
+  }
+
+  depends_on = [
+    local_sensitive_file.kubeconfig,
+    null_resource.flux_backend_install_yaml,
+  ]
+}
+
+resource "null_resource" "flux_system_backend_apply" {
+  triggers = {
+    flux_version = local.tool_versions["flux2"]
+  }
+
+  provisioner "local-exec" {
+    command = "kubectl apply -k flux/backend/flux-system --server-side"
+  }
+
+  depends_on = [
+    local_sensitive_file.kubeconfig,
+    null_resource.flux_system_common_apply,
+  ]
+}
+
+resource "null_resource" "flux_system_kustomization_backend_apply" {
+  provisioner "local-exec" {
+    command = "kubectl apply -f flux/backend/flux-system.yaml --server-side"
+  }
+
+  depends_on = [
+    local_sensitive_file.kubeconfig,
+    null_resource.flux_system_backend_apply,
+  ]
+}
+
+
+# mkdir -p flux/common/flux-system
+# flux install --version v0.39.0 --export > flux/common/flux-system/install.yaml
+# kubectl apply -k flux/backend/flux-system --server-side
+# flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source="localhost" --revision="main"
+# kubectl apply -f flux/backend/flux-system.yaml --server-side
