@@ -37,3 +37,11 @@ provider "registry.terraform.io/justenwalker/kind" {
     "zh:e86f5688375051dddbd5b9b336aa95408e4f35e7e058ecd0cd746e35e7c7a073",
   ]
 }
+
+provider "registry.terraform.io/kreuzwerker/docker" {
+  version     = "3.0.1"
+  constraints = "3.0.1"
+  hashes = [
+    "h1:X2wZHQoG54NmtojeFcX0PSJPelaIejQRqyyI2h+LjWg=",
+  ]
+}
