@@ -1,0 +1,8 @@
+?.*
+
+.terraform
+.vscode
+
+*.tfplan
+*.tfvars
+*.tfstate*
