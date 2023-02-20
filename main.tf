@@ -106,7 +106,7 @@ resource "docker_container" "registry" {
 data "archive_file" "flux" {
   type        = "zip"
   source_dir  = "flux"
-  output_path = "flux.zip"
+  output_path = ".flux.zip"
 }
 
 resource "null_resource" "flux_push_artifact" {
@@ -115,7 +115,7 @@ resource "null_resource" "flux_push_artifact" {
   }
 
   provisioner "local-exec" {
-    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"$(LC_ALL=C date +%Y%m%d%H%M%S)\""
+    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"$(git rev-parse --short HEAD 2>/dev/null || LC_ALL=C date +%Y%m%d%H%M%S)\""
   }
 
   depends_on = [
@@ -124,9 +124,23 @@ resource "null_resource" "flux_push_artifact" {
   ]
 }
 
+data "archive_file" "flux-common-flux-system" {
+  type        = "zip"
+  source_dir  = "flux/common/flux-system"
+  output_path = ".flux-common-flux-system.zip"
+}
+
+data "archive_file" "flux-backend-flux-system" {
+  type        = "zip"
+  source_dir  = "flux/backend/flux-system"
+  output_path = ".flux-backend-flux-system.zip"
+}
+
 resource "null_resource" "flux_system_common_apply" {
   triggers = {
-    flux_version = local.tool_versions["flux2"]
+    flux_version                    = local.tool_versions["flux2"]
+    flux_common_directory_checksum  = data.archive_file.flux-common-flux-system.output_base64sha256
+    flux_backend_directory_checksum = data.archive_file.flux-backend-flux-system.output_base64sha256
   }
 
   provisioner "local-exec" {
@@ -164,10 +178,3 @@ resource "null_resource" "flux_system_kustomization_backend_apply" {
     null_resource.flux_system_backend_apply,
   ]
 }
-
-
-# mkdir -p flux/common/flux-system
-# flux install --version v0.39.0 --export > flux/common/flux-system/install.yaml
-# kubectl apply -k flux/backend/flux-system --server-side
-# flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source="localhost" --revision="main"
-# kubectl apply -f flux/backend/flux-system.yaml --server-side

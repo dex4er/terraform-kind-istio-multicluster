@@ -13,3 +13,8 @@ patchesJson6902:
       kind: Deployment
       name: helm-controller
     path: patch_registry_proxy.yaml
+  - target:
+      version: v1
+      kind: Deployment
+      name: kustomize-controller
+    path: patch_no_remote_bases.yaml
