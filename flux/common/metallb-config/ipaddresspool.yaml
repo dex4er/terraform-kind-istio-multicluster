@@ -5,3 +5,4 @@ metadata:
 spec:
   addresses:
     - ${lb_iprange_start}-${lb_iprange_end}
+  autoAssign: false
