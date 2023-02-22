@@ -3,4 +3,7 @@ kind: Kustomization
 resources:
   - metallb.yaml
   - metallb-config.yaml
+  - istio-base.yaml
+  - istio-discovery.yaml
+  - istio-ingressgateway.yaml
   - podinfo.yaml

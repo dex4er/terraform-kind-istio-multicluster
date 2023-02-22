@@ -201,7 +201,7 @@ resource "null_resource" "flux_reconcile_backend" {
   }
 
   provisioner "local-exec" {
-    command = "flux reconcile ks flux-system"
+    command = "flux reconcile source oci flux-system && flux reconcile ks flux-system"
   }
 
   depends_on = [

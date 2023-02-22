@@ -1,14 +1,14 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
 metadata:
-  name: podinfo
+  name: istio-ingressgateway
   namespace: flux-system
 spec:
   dependsOn:
-    - name: istio-ingressgateway
+    - name: istio-discovery
   interval: 1m
   sourceRef:
     kind: OCIRepository
     name: flux-system
-  path: ./common/podinfo
+  path: ./common/istio-ingressgateway
   prune: true
