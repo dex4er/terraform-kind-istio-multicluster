@@ -1,8 +1,11 @@
 ?.*
 
+.dump
 .kube
 .terraform
 .vscode
+
+split-yaml
 
 *.env
 *.tfplan

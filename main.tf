@@ -98,12 +98,12 @@ resource "kind_cluster" "frontend" {
 
 resource "local_sensitive_file" "backend_kubeconfig" {
   content  = resource.kind_cluster.backend.kubeconfig
-  filename = ".kube/backend-config"
+  filename = ".kube/kind-backend.yaml"
 }
 
 resource "local_sensitive_file" "frontend_kubeconfig" {
   content  = resource.kind_cluster.frontend.kubeconfig
-  filename = ".kube/frontend-config"
+  filename = ".kube/kind-frontend.yaml"
 }
 
 resource "docker_container" "registry" {
@@ -123,6 +123,7 @@ resource "docker_container" "registry" {
 
   depends_on = [
     kind_cluster.backend,
+    kind_cluster.frontend,
   ]
 }
 
@@ -131,6 +132,7 @@ data "docker_network" "kind" {
 
   depends_on = [
     kind_cluster.backend,
+    kind_cluster.frontend,
   ]
 }
 
@@ -182,7 +184,7 @@ resource "null_resource" "flux_push_artifact" {
   }
 
   provisioner "local-exec" {
-    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"$(git rev-parse --short HEAD 2>/dev/null || LC_ALL=C date +%Y%m%d%H%M%S)\" --kubeconfig .kube/backend-config --context kind-backend"
+    command = "flux push artifact oci://localhost:5000/flux-system:latest --path=flux --source=\"localhost\" --revision=\"$(git rev-parse --short HEAD 2>/dev/null || LC_ALL=C date +%Y%m%d%H%M%S)\" --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -217,7 +219,7 @@ resource "null_resource" "flux_system_backend_common_apply" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/backend-config --context kind-backend"
+    command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -233,7 +235,7 @@ resource "null_resource" "flux_system_frontend_common_apply" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/frontend-config --context kind-frontend"
+    command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -248,7 +250,7 @@ resource "null_resource" "flux_system_backend_apply" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -k flux/backend/flux-system --server-side --kubeconfig .kube/backend-config --context kind-backend"
+    command = "kubectl apply -k flux/backend/flux-system --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -264,7 +266,7 @@ resource "null_resource" "flux_system_frontend_apply" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -k flux/frontend/flux-system --server-side --kubeconfig .kube/frontend-config --context kind-frontend"
+    command = "kubectl apply -k flux/frontend/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -275,7 +277,7 @@ resource "null_resource" "flux_system_frontend_apply" {
 
 resource "null_resource" "flux_system_kustomization_backend_apply" {
   provisioner "local-exec" {
-    command = "kubectl apply -f flux/backend/flux-system.yaml --server-side --kubeconfig .kube/backend-config --context kind-backend"
+    command = "kubectl apply -f flux/backend/flux-system.yaml --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -286,7 +288,7 @@ resource "null_resource" "flux_system_kustomization_backend_apply" {
 
 resource "null_resource" "flux_system_kustomization_frontend_apply" {
   provisioner "local-exec" {
-    command = "kubectl apply -f flux/frontend/flux-system.yaml --server-side --kubeconfig .kube/frontend-config --context kind-frontend"
+    command = "kubectl apply -f flux/frontend/flux-system.yaml --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -301,7 +303,7 @@ resource "null_resource" "flux_reconcile_backend" {
   }
 
   provisioner "local-exec" {
-    command = "flux reconcile source oci flux-system --kubeconfig .kube/backend-config --context kind-backend && flux reconcile ks flux-system --kubeconfig .kube/backend-config --context kind-backend"
+    command = "flux reconcile source oci flux-system --kubeconfig .kube/kind-backend.yaml --context kind-backend && flux reconcile ks flux-system --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -316,7 +318,7 @@ resource "null_resource" "flux_reconcile_frontend" {
   }
 
   provisioner "local-exec" {
-    command = "flux reconcile source oci flux-system --kubeconfig .kube/frontend-config --context kind-frontend && flux reconcile ks flux-system --kubeconfig .kube/frontend-config --context kind-frontend"
+    command = "flux reconcile source oci flux-system --kubeconfig .kube/kind-frontend.yaml --context kind-backend && flux reconcile ks flux-system --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
   }
 
   depends_on = [
