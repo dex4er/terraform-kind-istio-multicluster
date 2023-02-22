@@ -1,7 +1,7 @@
 apiVersion: source.toolkit.fluxcd.io/v1beta2
 kind: HelmRepository
 metadata:
-  name: podinfo
+  name: metallb
 spec:
   interval: 10m
-  url: https://stefanprodan.github.io/podinfo
+  url: https://metallb.github.io/metallb

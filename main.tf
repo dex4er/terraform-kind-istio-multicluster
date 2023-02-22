@@ -73,16 +73,6 @@ resource "local_sensitive_file" "kubeconfig" {
   filename = ".kube/config"
 }
 
-resource "null_resource" "flux_backend_install_yaml" {
-  triggers = {
-    flux_version = local.tool_versions["flux2"]
-  }
-
-  provisioner "local-exec" {
-    command = "mkdir -p flux/common/flux-system && flux install --export --version v${local.tool_versions["flux2"]} > flux/common/flux-system/install.yaml"
-  }
-}
-
 resource "docker_container" "registry" {
   name    = "kind-registry"
   image   = docker_image.registry.image_id
@@ -103,6 +93,32 @@ resource "docker_container" "registry" {
   ]
 }
 
+data "docker_network" "kind" {
+  name = "kind"
+
+  depends_on = [
+    kind_cluster.backend,
+  ]
+}
+
+locals {
+  kind_network                = [for i in data.docker_network.kind.ipam_config : i.subnet if length(regexall(":", i.subnet)) == 0][0]
+  kind_infra_lb_iprange_start = cidrhost(local.kind_network, 251 * 256)
+  kind_infra_lb_iprange_end   = cidrhost(local.kind_network, 251 * 256)
+}
+
+resource "local_file" "env_file" {
+  content = join("\n", [
+    "lb_iprange_start=${local.kind_infra_lb_iprange_start}",
+    "lb_iprange_end=${local.kind_infra_lb_iprange_end}",
+  ])
+  filename = "flux/backend/flux-system/cluster-vars.env"
+
+  depends_on = [
+    data.docker_network.kind,
+  ]
+}
+
 data "archive_file" "flux" {
   type        = "zip"
   source_dir  = "flux"
@@ -120,7 +136,7 @@ resource "null_resource" "flux_push_artifact" {
 
   depends_on = [
     docker_container.registry,
-    null_resource.flux_backend_install_yaml,
+    local_file.env_file,
   ]
 }
 
@@ -149,13 +165,13 @@ resource "null_resource" "flux_system_common_apply" {
 
   depends_on = [
     local_sensitive_file.kubeconfig,
-    null_resource.flux_backend_install_yaml,
   ]
 }
 
 resource "null_resource" "flux_system_backend_apply" {
   triggers = {
-    flux_version = local.tool_versions["flux2"]
+    flux_version                    = local.tool_versions["flux2"]
+    flux_backend_directory_checksum = data.archive_file.flux-backend-flux-system.output_base64sha256
   }
 
   provisioner "local-exec" {
@@ -176,5 +192,20 @@ resource "null_resource" "flux_system_kustomization_backend_apply" {
   depends_on = [
     local_sensitive_file.kubeconfig,
     null_resource.flux_system_backend_apply,
+  ]
+}
+
+resource "null_resource" "flux_reconcile_backend" {
+  triggers = {
+    flux_push_artifact_id = null_resource.flux_push_artifact.id
+  }
+
+  provisioner "local-exec" {
+    command = "flux reconcile ks flux-system"
+  }
+
+  depends_on = [
+    null_resource.flux_system_kustomization_backend_apply,
+    null_resource.flux_push_artifact,
   ]
 }

@@ -3,3 +3,10 @@ kind: Kustomization
 resources:
   - ../../common/flux-system
   - ocirepository.yaml
+configMapGenerator:
+  - name: cluster-vars
+    namespace: flux-system
+    envs:
+      - cluster-vars.env
+generatorOptions:
+  disableNameSuffixHash: true

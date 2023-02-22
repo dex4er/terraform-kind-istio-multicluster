@@ -1,0 +1,25 @@
+apiVersion: helm.toolkit.fluxcd.io/v2beta1
+kind: HelmRelease
+metadata:
+  name: metallb
+spec:
+  interval: 1m
+  timeout: 2m
+  maxHistory: 2
+  chart:
+    spec:
+      interval: 1m
+      chart: metallb
+      ## https://metallb.github.io/metallb/index.yaml
+      ## https://github.com/metallb/metallb/releases
+      version: "0.13.9"
+      sourceRef:
+        kind: HelmRepository
+        name: metallb
+      reconcileStrategy: Revision
+  install:
+    crds: CreateReplace
+  upgrade:
+    crds: CreateReplace
+  # values:
+  ## https://github.com/metallb/metallb/blob/main/charts/metallb/values.yaml

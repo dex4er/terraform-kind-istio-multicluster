@@ -1,0 +1,7 @@
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: kind
+spec:
+  addresses:
+    - ${lb_iprange_start}-${lb_iprange_end}
