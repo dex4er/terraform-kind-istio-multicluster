@@ -17,5 +17,16 @@ spec:
         kind: HelmRepository
         name: istio
       reconcileStrategy: Revision
-  # values:
-  ## https://github.com/istio/istio/blob/master/manifests/charts/istio-control/istio-discovery/values.yaml
+  values:
+    ## https://github.com/istio/istio/blob/master/manifests/charts/istio-control/istio-discovery/values.yaml
+
+    meshConfig:
+      accessLogFile: /dev/stdout
+
+    global:
+      # remotePilotAddress: ${istio_remote_pilot_address}
+      meshID: kind
+      multiCluster:
+        enabled: true
+        clusterName: ${cluster_name}
+      network: ${cluster_name}

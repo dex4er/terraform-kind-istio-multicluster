@@ -1,6 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: istio-system
+  name: istio-eastwestgateway
   labels:
+    istio-injection: enabled
     topology.istio.io/network: ${cluster_name}

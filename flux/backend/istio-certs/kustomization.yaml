@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: istio-system
+secretGenerator:
+  - name: cacerts
+    files:
+      - certs/ca-cert.pem
+      - certs/ca-key.pem
+      - certs/root-cert.pem
+      - certs/cert-chain.pem
+generatorOptions:
+  disableNameSuffixHash: true

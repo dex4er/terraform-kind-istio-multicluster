@@ -5,10 +5,14 @@ metadata:
   namespace: flux-system
 spec:
   dependsOn:
-    - name: istio-base
+    - name: istio-certs
   interval: 1m
   sourceRef:
     kind: OCIRepository
     name: flux-system
   path: ./common/istio-discovery
   prune: true
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

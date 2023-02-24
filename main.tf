@@ -137,20 +137,25 @@ data "docker_network" "kind" {
 }
 
 locals {
-  kind_network                             = [for i in data.docker_network.kind.ipam_config : i.subnet if length(regexall(":", i.subnet)) == 0][0]
-  kind_backend_lb_iprange_start            = cidrhost(local.kind_network, 251 * 256)
-  kind_backend_lb_iprange_end              = cidrhost(local.kind_network, 251 * 256 + 255)
-  kind_backend_lb_ip_istio_ingressgateway  = cidrhost(local.kind_network, 251 * 256)
-  kind_frontend_lb_iprange_start           = cidrhost(local.kind_network, 252 * 256)
-  kind_frontend_lb_iprange_end             = cidrhost(local.kind_network, 252 * 256 + 255)
-  kind_frontend_lb_ip_istio_ingressgateway = cidrhost(local.kind_network, 252 * 256)
+  kind_network                              = [for i in data.docker_network.kind.ipam_config : i.subnet if length(regexall(":", i.subnet)) == 0][0]
+  kind_backend_lb_iprange_start             = cidrhost(local.kind_network, 251 * 256)
+  kind_backend_lb_iprange_end               = cidrhost(local.kind_network, 251 * 256 + 255)
+  kind_backend_lb_ip_istio_ingressgateway   = cidrhost(local.kind_network, 251 * 256)
+  kind_backend_lb_ip_istio_eastwestgateway  = cidrhost(local.kind_network, 251 * 256 + 1)
+  kind_frontend_lb_iprange_start            = cidrhost(local.kind_network, 252 * 256)
+  kind_frontend_lb_iprange_end              = cidrhost(local.kind_network, 252 * 256 + 255)
+  kind_frontend_lb_ip_istio_ingressgateway  = cidrhost(local.kind_network, 252 * 256)
+  kind_frontend_lb_ip_istio_eastwestgateway = cidrhost(local.kind_network, 252 * 256 + 1)
 }
 
 resource "local_file" "backend_env_file" {
   content = join("\n", [
+    "cluster_name=${kind_cluster.backend.context}",
+    "istio_remote_pilot_address=${local.kind_frontend_lb_ip_istio_eastwestgateway}",
     "lb_iprange_start=${local.kind_backend_lb_iprange_start}",
     "lb_iprange_end=${local.kind_backend_lb_iprange_end}",
     "lb_ip_istio_ingressgateway=${local.kind_backend_lb_ip_istio_ingressgateway}",
+    "lb_ip_istio_eastwestgateway=${local.kind_backend_lb_ip_istio_eastwestgateway}",
   ])
   filename = "flux/backend/flux-system/cluster-vars.env"
 
@@ -161,9 +166,12 @@ resource "local_file" "backend_env_file" {
 
 resource "local_file" "frontend_env_file" {
   content = join("\n", [
+    "cluster_name=${kind_cluster.frontend.context}",
+    "istio_remote_pilot_address=${local.kind_backend_lb_ip_istio_eastwestgateway}",
     "lb_iprange_start=${local.kind_frontend_lb_iprange_start}",
     "lb_iprange_end=${local.kind_frontend_lb_iprange_end}",
     "lb_ip_istio_ingressgateway=${local.kind_frontend_lb_ip_istio_ingressgateway}",
+    "lb_ip_istio_eastwestgateway=${local.kind_frontend_lb_ip_istio_eastwestgateway}",
   ])
   filename = "flux/frontend/flux-system/cluster-vars.env"
 
@@ -235,7 +243,7 @@ resource "null_resource" "flux_system_frontend_common_apply" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
+    command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
 
   depends_on = [
@@ -266,7 +274,7 @@ resource "null_resource" "flux_system_frontend_apply" {
   }
 
   provisioner "local-exec" {
-    command = "kubectl apply -k flux/frontend/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
+    command = "kubectl apply -k flux/frontend/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
 
   depends_on = [
@@ -288,7 +296,7 @@ resource "null_resource" "flux_system_kustomization_backend_apply" {
 
 resource "null_resource" "flux_system_kustomization_frontend_apply" {
   provisioner "local-exec" {
-    command = "kubectl apply -f flux/frontend/flux-system.yaml --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
+    command = "kubectl apply -f flux/frontend/flux-system.yaml --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
 
   depends_on = [
@@ -318,11 +326,37 @@ resource "null_resource" "flux_reconcile_frontend" {
   }
 
   provisioner "local-exec" {
-    command = "flux reconcile source oci flux-system --kubeconfig .kube/kind-frontend.yaml --context kind-backend && flux reconcile ks flux-system --kubeconfig .kube/kind-frontend.yaml --context kind-backend"
+    command = "flux reconcile source oci flux-system --kubeconfig .kube/kind-frontend.yaml --context kind-frontend && flux reconcile ks flux-system --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
 
   depends_on = [
     null_resource.flux_system_kustomization_frontend_apply,
     null_resource.flux_push_artifact,
+  ]
+}
+
+resource "null_resource" "istio_remote_secret_backend" {
+  provisioner "local-exec" {
+    command = "istioctl x create-remote-secret --name kind-backend --server https://backend-control-plane:6443 --kubeconfig .kube/kind-backend.yaml --context kind-backend | kubectl apply -f - --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
+  }
+
+  depends_on = [
+    local_sensitive_file.backend_kubeconfig,
+    local_sensitive_file.frontend_kubeconfig,
+    null_resource.flux_system_backend_apply,
+    null_resource.flux_system_frontend_apply,
+  ]
+}
+
+resource "null_resource" "istio_remote_secret_frontend" {
+  provisioner "local-exec" {
+    command = "istioctl x create-remote-secret --name kind-frontend --server https://frontend-control-plane:6443 --kubeconfig .kube/kind-frontend.yaml --context kind-frontend | kubectl apply -f - --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
+  }
+
+  depends_on = [
+    local_sensitive_file.backend_kubeconfig,
+    local_sensitive_file.frontend_kubeconfig,
+    null_resource.flux_system_backend_apply,
+    null_resource.flux_system_frontend_apply,
   ]
 }

@@ -6,7 +6,7 @@ spec:
   hosts:
     - "*"
   gateways:
-    - istio-gateway/catchall
+    - istio-ingressgateway/catchall
   http:
     - match:
         - uri:
