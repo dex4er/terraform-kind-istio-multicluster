@@ -4,9 +4,9 @@ namespace: istio-system
 secretGenerator:
   - name: cacerts
     files:
-      - certs/ca-cert.pem
-      - certs/ca-key.pem
-      - certs/root-cert.pem
-      - certs/cert-chain.pem
+      - files/ca-cert.pem
+      - files/ca-key.pem
+      - ../../common/istio-certs/files/root-cert.pem
+      - files/cert-chain.pem
 generatorOptions:
   disableNameSuffixHash: true

@@ -23,6 +23,3 @@ spec:
     crds: CreateReplace
   values:
     ## https://github.com/istio/istio/blob/master/manifests/charts/base/values.yaml
-
-    global:
-      # remotePilotAddress: ${istio_remote_pilot_address}

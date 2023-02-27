@@ -20,9 +20,15 @@ spec:
     ## https://github.com/stefanprodan/podinfo/blob/master/charts/podinfo/values.yaml
 
     replicaCount: 1
+    backends:
+      - http://podinfo.podinfo:9898/echo
 
     image:
       tag: 6.3.0
+
+    ui:
+      ## blue
+      color: "#4078c0"
 
     hpa:
       enabled: false

@@ -10,7 +10,7 @@ spec:
   sourceRef:
     kind: OCIRepository
     name: flux-system
-  path: ./common/podinfo
+  path: ./backend/podinfo
   prune: true
   postBuild:
     substituteFrom:

@@ -1,3 +1,6 @@
+## Single Terraform file for clarity
+
+## Strict dependencies
 terraform {
   required_providers {
     archive = {
@@ -25,16 +28,20 @@ terraform {
       source  = "hashicorp/null"
       version = "3.2.1"
     }
+    time = {
+      ## https://registry.terraform.io/providers/hashicorp/time/latest/docs
+      source  = "hashicorp/time"
+      version = "0.9.1"
+    }
+    tls = {
+      ## https://registry.terraform.io/providers/hashicorp/tls/latest/docs
+      source  = "hashicorp/tls"
+      version = "4.0.4"
+    }
   }
 }
 
-locals {
-  tool_versions = { for line in split("\n", file(".tool-versions")) : split(" ", line)[0] => split(" ", line)[1] if line != "" }
-}
-
-resource "docker_image" "registry" {
-  name = "registry:2"
-}
+## Two KIND clusters
 
 provider "kind" {
   provider = "docker"
@@ -47,23 +54,26 @@ resource "kind_cluster" "backend" {
     kind       = "Cluster"
     apiVersion = "kind.x-k8s.io/v1alpha4"
     name       = "backend"
+    ## Use kind-registry container instead of localhost:5000
     containerdConfigPatches = [join("\n", [
       "[plugins.\"io.containerd.grpc.v1.cri\".registry.mirrors.\"localhost:5000\"]",
       "  endpoint = [\"http://kind-registry:5000\"]"
     ])]
+    ## Allows to start inside LXC container (ChromeOS)
     featureGates = {
       KubeletInUserNamespace = true
     }
     nodes = [{
       role = "control-plane"
-      kubeadmConfigPatches = [yamlencode({
-        kind = "InitConfiguration"
-        nodeRegistration = {
-          kubeletExtraArgs = {
-            node-labels = "ingress-ready=true"
-          }
-        }
-      })]
+      # ## Extra patches when Ingress is Nginx
+      # kubeadmConfigPatches = [yamlencode({
+      #   kind = "InitConfiguration"
+      #   nodeRegistration = {
+      #     kubeletExtraArgs = {
+      #       node-labels = "ingress-ready=true"
+      #     }
+      #   }
+      # })]
     }]
   })
 }
@@ -75,26 +85,31 @@ resource "kind_cluster" "frontend" {
     kind       = "Cluster"
     apiVersion = "kind.x-k8s.io/v1alpha4"
     name       = "frontend"
+    ## Use kind-registry container instead of localhost:5000
     containerdConfigPatches = [join("\n", [
       "[plugins.\"io.containerd.grpc.v1.cri\".registry.mirrors.\"localhost:5000\"]",
       "  endpoint = [\"http://kind-registry:5000\"]"
     ])]
+    ## Allows to start inside LXC container (ChromeOS)
     featureGates = {
       KubeletInUserNamespace = true
     }
     nodes = [{
       role = "control-plane"
-      kubeadmConfigPatches = [yamlencode({
-        kind = "InitConfiguration"
-        nodeRegistration = {
-          kubeletExtraArgs = {
-            node-labels = "ingress-ready=true"
-          }
-        }
-      })]
+      # ## Extra patches when Ingress is Nginx
+      # kubeadmConfigPatches = [yamlencode({
+      #   kind = "InitConfiguration"
+      #   nodeRegistration = {
+      #     kubeletExtraArgs = {
+      #       node-labels = "ingress-ready=true"
+      #     }
+      #   }
+      # })]
     }]
   })
 }
+
+## KIND will write to ~/.kube but there are extra config files used by Terraform
 
 resource "local_sensitive_file" "backend_kubeconfig" {
   content  = resource.kind_cluster.backend.kubeconfig
@@ -104,6 +119,12 @@ resource "local_sensitive_file" "backend_kubeconfig" {
 resource "local_sensitive_file" "frontend_kubeconfig" {
   content  = resource.kind_cluster.frontend.kubeconfig
   filename = ".kube/kind-frontend.yaml"
+}
+
+## KIND will use this registry
+
+resource "docker_image" "registry" {
+  name = "registry:2"
 }
 
 resource "docker_container" "registry" {
@@ -127,6 +148,17 @@ resource "docker_container" "registry" {
   ]
 }
 
+resource "time_sleep" "after_kind_registry" {
+  create_duration = "60s"
+
+  depends_on = [
+    docker_container.registry,
+  ]
+}
+
+
+## First KIND cluster will create `kind` network
+
 data "docker_network" "kind" {
   name = "kind"
 
@@ -135,6 +167,8 @@ data "docker_network" "kind" {
     kind_cluster.frontend,
   ]
 }
+
+## Calculate network addresses in `kind` network
 
 locals {
   kind_network                              = [for i in data.docker_network.kind.ipam_config : i.subnet if length(regexall(":", i.subnet)) == 0][0]
@@ -147,6 +181,8 @@ locals {
   kind_frontend_lb_ip_istio_ingressgateway  = cidrhost(local.kind_network, 252 * 256)
   kind_frontend_lb_ip_istio_eastwestgateway = cidrhost(local.kind_network, 252 * 256 + 1)
 }
+
+## Pass variables from Terraform to Flux through env file
 
 resource "local_file" "backend_env_file" {
   content = join("\n", [
@@ -180,11 +216,159 @@ resource "local_file" "frontend_env_file" {
   ]
 }
 
+## Common CA cert for Istio
+
+resource "tls_private_key" "root" {
+  algorithm = "RSA"
+  rsa_bits  = "4096"
+}
+
+resource "local_file" "root_key" {
+  content  = tls_private_key.root.private_key_pem
+  filename = "flux/common/istio-certs/files/root-key.pem"
+}
+
+resource "tls_self_signed_cert" "root" {
+  private_key_pem   = tls_private_key.root.private_key_pem
+  is_ca_certificate = true
+
+  subject {
+    common_name  = "Root CA"
+    organization = "Istio"
+  }
+
+  validity_period_hours = 10 * 365 * 24 + 2 * 24
+
+  allowed_uses = [
+    "digital_signature",
+    "content_commitment",
+    "key_encipherment",
+    "cert_signing",
+  ]
+}
+
+resource "local_file" "root_cert" {
+  content  = tls_self_signed_cert.root.cert_pem
+  filename = "flux/common/istio-certs/files/root-cert.pem"
+}
+
+## Intermediate CA for Istio
+
+resource "tls_private_key" "backend" {
+  algorithm = "RSA"
+  rsa_bits  = "4096"
+}
+
+resource "local_file" "backend_ca_key" {
+  content  = tls_private_key.backend.private_key_pem
+  filename = "flux/backend/istio-certs/files/ca-key.pem"
+}
+
+resource "tls_cert_request" "backend" {
+  private_key_pem = tls_private_key.backend.private_key_pem
+
+  dns_names = [
+    "istiod.istio-system.svc",
+  ]
+
+  subject {
+    organization = "Istio"
+    common_name  = "Intermediate CA"
+    locality     = "kind-backend"
+  }
+}
+
+resource "tls_locally_signed_cert" "backend" {
+  cert_request_pem   = tls_cert_request.backend.cert_request_pem
+  ca_private_key_pem = tls_private_key.root.private_key_pem
+  ca_cert_pem        = tls_self_signed_cert.root.cert_pem
+  is_ca_certificate  = true
+
+  validity_period_hours = 2 * 365 * 24
+
+  allowed_uses = [
+    "digital_signature",
+    "content_commitment",
+    "key_encipherment",
+    "cert_signing",
+  ]
+}
+
+resource "local_file" "backend_ca_cert" {
+  content  = tls_locally_signed_cert.backend.cert_pem
+  filename = "flux/backend/istio-certs/files/ca-cert.pem"
+}
+
+resource "local_file" "backend_cert_chain" {
+  content = join("", [
+    tls_locally_signed_cert.backend.cert_pem,
+    tls_self_signed_cert.root.cert_pem,
+  ])
+  filename = "flux/backend/istio-certs/files/cert-chain.pem"
+}
+
+resource "tls_private_key" "frontend" {
+  algorithm = "RSA"
+  rsa_bits  = "4096"
+}
+
+resource "local_file" "frontend_ca_key" {
+  content  = tls_private_key.frontend.private_key_pem
+  filename = "flux/frontend/istio-certs/files/ca-key.pem"
+}
+
+resource "tls_cert_request" "frontend" {
+  private_key_pem = tls_private_key.frontend.private_key_pem
+
+  dns_names = [
+    "istiod.istio-system.svc",
+  ]
+
+  subject {
+    organization = "Istio"
+    common_name  = "Intermediate CA"
+    locality     = "kind-frontend"
+  }
+}
+
+resource "tls_locally_signed_cert" "frontend" {
+  cert_request_pem   = tls_cert_request.frontend.cert_request_pem
+  ca_private_key_pem = tls_private_key.root.private_key_pem
+  ca_cert_pem        = tls_self_signed_cert.root.cert_pem
+  is_ca_certificate  = true
+
+  validity_period_hours = 2 * 365 * 24
+
+  allowed_uses = [
+    "digital_signature",
+    "content_commitment",
+    "key_encipherment",
+    "cert_signing",
+  ]
+}
+
+resource "local_file" "frontend_ca_cert" {
+  content  = tls_locally_signed_cert.frontend.cert_pem
+  filename = "flux/frontend/istio-certs/files/ca-cert.pem"
+}
+
+resource "local_file" "frontend_cert_chain" {
+  content = join("", [
+    tls_locally_signed_cert.frontend.cert_pem,
+    tls_self_signed_cert.root.cert_pem,
+  ])
+  filename = "flux/frontend/istio-certs/files/cert-chain.pem"
+}
+
+## Calculate checksum for ./flux directory to detect the changes
+
 data "archive_file" "flux" {
   type        = "zip"
   source_dir  = "flux"
   output_path = ".flux.zip"
 }
+
+## Push ./flux directory to kind-registry
 
 resource "null_resource" "flux_push_artifact" {
   triggers = {
@@ -196,36 +380,21 @@ resource "null_resource" "flux_push_artifact" {
   }
 
   depends_on = [
-    docker_container.registry,
+    time_sleep.after_kind_registry,
     local_file.backend_env_file,
+    local_file.root_cert,
+    local_file.backend_ca_key,
+    local_file.backend_ca_cert,
+    local_file.backend_cert_chain,
+    local_file.frontend_ca_key,
+    local_file.frontend_ca_cert,
+    local_file.frontend_cert_chain,
   ]
 }
 
-data "archive_file" "flux-common-flux-system" {
-  type        = "zip"
-  source_dir  = "flux/common/flux-system"
-  output_path = ".flux-common-flux-system.zip"
-}
-
-data "archive_file" "flux-backend-flux-system" {
-  type        = "zip"
-  source_dir  = "flux/backend/flux-system"
-  output_path = ".flux-backend-flux-system.zip"
-}
-
-data "archive_file" "flux-frontend-flux-system" {
-  type        = "zip"
-  source_dir  = "flux/frontend/flux-system"
-  output_path = ".flux-frontend-flux-system.zip"
-}
+## Flux: step 1 - install CRDs and main manifest
 
 resource "null_resource" "flux_system_backend_common_apply" {
-  triggers = {
-    flux_version                    = local.tool_versions["flux2"]
-    flux_common_directory_checksum  = data.archive_file.flux-common-flux-system.output_base64sha256
-    flux_backend_directory_checksum = data.archive_file.flux-backend-flux-system.output_base64sha256
-  }
-
   provisioner "local-exec" {
     command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
@@ -236,12 +405,6 @@ resource "null_resource" "flux_system_backend_common_apply" {
 }
 
 resource "null_resource" "flux_system_frontend_common_apply" {
-  triggers = {
-    flux_version                     = local.tool_versions["flux2"]
-    flux_common_directory_checksum   = data.archive_file.flux-common-flux-system.output_base64sha256
-    flux_frontend_directory_checksum = data.archive_file.flux-frontend-flux-system.output_base64sha256
-  }
-
   provisioner "local-exec" {
     command = "kubectl apply -k flux/common/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
@@ -251,12 +414,9 @@ resource "null_resource" "flux_system_frontend_common_apply" {
   ]
 }
 
-resource "null_resource" "flux_system_backend_apply" {
-  triggers = {
-    flux_version                    = local.tool_versions["flux2"]
-    flux_backend_directory_checksum = data.archive_file.flux-backend-flux-system.output_base64sha256
-  }
+## Flux: step 2 - install sources and kustomization for frontend/backend
 
+resource "null_resource" "flux_system_backend_apply" {
   provisioner "local-exec" {
     command = "kubectl apply -k flux/backend/flux-system --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
@@ -268,11 +428,6 @@ resource "null_resource" "flux_system_backend_apply" {
 }
 
 resource "null_resource" "flux_system_frontend_apply" {
-  triggers = {
-    flux_version                     = local.tool_versions["flux2"]
-    flux_frontend_directory_checksum = data.archive_file.flux-frontend-flux-system.output_base64sha256
-  }
-
   provisioner "local-exec" {
     command = "kubectl apply -k flux/frontend/flux-system --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
@@ -283,9 +438,11 @@ resource "null_resource" "flux_system_frontend_apply" {
   ]
 }
 
-resource "null_resource" "flux_system_kustomization_backend_apply" {
+## Flux: step 3 - install main Flux kustomization
+
+resource "null_resource" "flux_system_all_backend_apply" {
   provisioner "local-exec" {
-    command = "kubectl apply -f flux/backend/flux-system.yaml --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
+    command = "kubectl apply -f flux/backend/all.yaml --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
@@ -294,9 +451,9 @@ resource "null_resource" "flux_system_kustomization_backend_apply" {
   ]
 }
 
-resource "null_resource" "flux_system_kustomization_frontend_apply" {
+resource "null_resource" "flux_system_all_frontend_apply" {
   provisioner "local-exec" {
-    command = "kubectl apply -f flux/frontend/flux-system.yaml --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
+    command = "kubectl apply -f flux/frontend/all.yaml --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
 
   depends_on = [
@@ -305,7 +462,9 @@ resource "null_resource" "flux_system_kustomization_frontend_apply" {
   ]
 }
 
-resource "null_resource" "flux_reconcile_backend" {
+## Reconcile Flux source repo and kustomization
+
+resource "null_resource" "flux_reconcile_all_backend" {
   triggers = {
     flux_push_artifact_id = null_resource.flux_push_artifact.id
   }
@@ -315,12 +474,12 @@ resource "null_resource" "flux_reconcile_backend" {
   }
 
   depends_on = [
-    null_resource.flux_system_kustomization_backend_apply,
+    time_sleep.after_flux_all_apply,
     null_resource.flux_push_artifact,
   ]
 }
 
-resource "null_resource" "flux_reconcile_frontend" {
+resource "null_resource" "flux_reconcile_all_frontend" {
   triggers = {
     flux_push_artifact_id = null_resource.flux_push_artifact.id
   }
@@ -330,33 +489,40 @@ resource "null_resource" "flux_reconcile_frontend" {
   }
 
   depends_on = [
-    null_resource.flux_system_kustomization_frontend_apply,
+    time_sleep.after_flux_all_apply,
     null_resource.flux_push_artifact,
+  ]
+}
+
+## Create remote secrets for Istio
+
+resource "time_sleep" "after_flux_all_apply" {
+  create_duration = "120s"
+
+  depends_on = [
+    local_sensitive_file.backend_kubeconfig,
+    local_sensitive_file.frontend_kubeconfig,
+    null_resource.flux_system_all_backend_apply,
+    null_resource.flux_system_all_frontend_apply,
   ]
 }
 
 resource "null_resource" "istio_remote_secret_backend" {
   provisioner "local-exec" {
-    command = "istioctl x create-remote-secret --name kind-backend --server https://backend-control-plane:6443 --kubeconfig .kube/kind-backend.yaml --context kind-backend | kubectl apply -f - --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
+    command = "istioctl x create-remote-secret --name kind-backend --server https://backend-control-plane:6443 --kubeconfig .kube/kind-backend.yaml --context kind-backend | kubectl apply -l istio/multiCluster=true -f - --server-side --kubeconfig .kube/kind-frontend.yaml --context kind-frontend"
   }
 
   depends_on = [
-    local_sensitive_file.backend_kubeconfig,
-    local_sensitive_file.frontend_kubeconfig,
-    null_resource.flux_system_backend_apply,
-    null_resource.flux_system_frontend_apply,
+    time_sleep.after_flux_all_apply,
   ]
 }
 
 resource "null_resource" "istio_remote_secret_frontend" {
   provisioner "local-exec" {
-    command = "istioctl x create-remote-secret --name kind-frontend --server https://frontend-control-plane:6443 --kubeconfig .kube/kind-frontend.yaml --context kind-frontend | kubectl apply -f - --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
+    command = "istioctl x create-remote-secret --name kind-frontend --server https://frontend-control-plane:6443 --kubeconfig .kube/kind-frontend.yaml --context kind-frontend | kubectl apply -l istio/multiCluster=true -f - --server-side --kubeconfig .kube/kind-backend.yaml --context kind-backend"
   }
 
   depends_on = [
-    local_sensitive_file.backend_kubeconfig,
-    local_sensitive_file.frontend_kubeconfig,
-    null_resource.flux_system_backend_apply,
-    null_resource.flux_system_frontend_apply,
+    time_sleep.after_flux_all_apply,
   ]
 }

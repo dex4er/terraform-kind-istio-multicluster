@@ -24,7 +24,6 @@ spec:
       accessLogFile: /dev/stdout
 
     global:
-      # remotePilotAddress: ${istio_remote_pilot_address}
       meshID: kind
       multiCluster:
         enabled: true

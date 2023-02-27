@@ -8,6 +8,7 @@
 split-yaml
 
 *.env
+*.pem
 *.tfplan
 *.tfvars
 *.tfstate*

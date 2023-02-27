@@ -5,7 +5,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 1m
-  path: ./backend
+  path: ./backend/flux-system
   prune: true
   sourceRef:
     kind: OCIRepository

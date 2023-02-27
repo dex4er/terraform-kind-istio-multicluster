@@ -8,11 +8,15 @@ spec:
   gateways:
     - istio-ingressgateway/catchall
   http:
-    - match:
+    - name: podinfo-backend
+      match:
         - uri:
             prefix: /
+          sourceLabels:
+            topology.istio.io/cluster: kind-backend
       route:
         - destination:
             host: podinfo
             port:
               number: 9898
+            subset: kind-backend

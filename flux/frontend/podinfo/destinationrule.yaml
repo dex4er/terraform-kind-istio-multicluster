@@ -1,0 +1,13 @@
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: podinfo
+spec:
+  host: podinfo.podinfo.svc.cluster.local
+  subsets:
+    - name: kind-backend
+      labels:
+        topology.istio.io/cluster: kind-backend
+    - name: kind-frontend
+      labels:
+        topology.istio.io/cluster: kind-frontend

@@ -1,0 +1,36 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: podinfo
+spec:
+  hosts:
+    - "*"
+  gateways:
+    - istio-ingressgateway/catchall
+  http:
+    ## Uncomment to redirect to all podinfo instances
+    # - name: podinfo-frontend
+    #   match:
+    #     - uri:
+    #         prefix: /
+    #       sourceLabels:
+    #         topology.istio.io/cluster: kind-frontend
+    #   route:
+    #     - destination:
+    #         host: podinfo
+    #         port:
+    #           number: 9898
+    #         subset: kind-frontend
+    - name: podinfo-backend
+      match:
+        - uri:
+            prefix: /
+          ## Uncomment to redirect to all podinfo instances
+          # sourceLabels:
+          #   topology.istio.io/cluster: kind-backend
+      route:
+        - destination:
+            host: podinfo
+            port:
+              number: 9898
+            subset: kind-backend

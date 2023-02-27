@@ -1,11 +1,11 @@
 apiVersion: kustomize.toolkit.fluxcd.io/v1beta2
 kind: Kustomization
 metadata:
-  name: flux-system
+  name: all
   namespace: flux-system
 spec:
   interval: 1m
-  path: ./frontend/flux-system
+  path: ./backend
   prune: true
   sourceRef:
     kind: OCIRepository

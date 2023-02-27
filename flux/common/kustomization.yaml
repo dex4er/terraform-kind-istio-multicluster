@@ -7,4 +7,3 @@ resources:
   - istio-discovery.yaml
   - istio-eastwestgateway.yaml
   - istio-ingressgateway.yaml
-  - podinfo.yaml
