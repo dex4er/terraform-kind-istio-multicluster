@@ -44,3 +44,6 @@ certificates and environment variables for Flux.
 
 Istio is configured as a multicluster mesh and frontend ingress uses backend
 podinfo service only for demo purpose.
+
+To detect traffic easier podinfo on backend is #6cc644 (green) and on
+frontend is #4078c0 (blue).
