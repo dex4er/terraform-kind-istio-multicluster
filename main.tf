@@ -187,11 +187,11 @@ locals {
 resource "local_file" "backend_env_file" {
   content = join("\n", [
     "cluster_name=${kind_cluster.backend.context}",
-    "istio_remote_pilot_address=${local.kind_frontend_lb_ip_istio_eastwestgateway}",
     "lb_iprange_start=${local.kind_backend_lb_iprange_start}",
     "lb_iprange_end=${local.kind_backend_lb_iprange_end}",
     "lb_ip_istio_ingressgateway=${local.kind_backend_lb_ip_istio_ingressgateway}",
     "lb_ip_istio_eastwestgateway=${local.kind_backend_lb_ip_istio_eastwestgateway}",
+    "lb_ip_istio_remote_eastwestgateway=${local.kind_frontend_lb_ip_istio_eastwestgateway}",
   ])
   filename = "flux/backend/flux-system/cluster-vars.env"
 
@@ -203,11 +203,11 @@ resource "local_file" "backend_env_file" {
 resource "local_file" "frontend_env_file" {
   content = join("\n", [
     "cluster_name=${kind_cluster.frontend.context}",
-    "istio_remote_pilot_address=${local.kind_backend_lb_ip_istio_eastwestgateway}",
     "lb_iprange_start=${local.kind_frontend_lb_iprange_start}",
     "lb_iprange_end=${local.kind_frontend_lb_iprange_end}",
     "lb_ip_istio_ingressgateway=${local.kind_frontend_lb_ip_istio_ingressgateway}",
     "lb_ip_istio_eastwestgateway=${local.kind_frontend_lb_ip_istio_eastwestgateway}",
+    "lb_ip_istio_remote_eastwestgateway=${local.kind_backend_lb_ip_istio_eastwestgateway}",
   ])
   filename = "flux/frontend/flux-system/cluster-vars.env"
 

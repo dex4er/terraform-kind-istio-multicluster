@@ -1,0 +1,21 @@
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: podinfo
+spec:
+  hosts:
+    - podinfo.podinfo.svc.cluster.local
+  location: MESH_INTERNAL
+  ports:
+    - name: http
+      number: 9898
+      protocol: http
+  resolution: DNS
+  addresses:
+    - 240.0.0.1
+  endpoints:
+    - address: ${lb_ip_istio_remote_eastwestgateway}
+      labels:
+        cluster: kind-backend
+      ports:
+        http: 15443
